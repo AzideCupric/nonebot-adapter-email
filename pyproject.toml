@@ -17,6 +17,8 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.10"
 nonebot2 = "^2.0.1"
+aiosmtplib = "^2.0.2"
+aioimaplib = "^1.0.1"
 
 [tool.poetry.group.dev.dependencies]
 nonemoji = "^0.1.2"
