@@ -1,3 +1,4 @@
+from typing import Any
 from nonebot.typing import overrides
 
 from nonebot.adapters import Bot as BaseBot
@@ -11,7 +12,7 @@ class Bot(BaseBot):
     async def send(
         self,
         event: Event,
-        message: Union[str, Message, MessageSegment],
+        message: str | Message | MessageSegment,
         **kwargs,
     ) -> Any:
         ...

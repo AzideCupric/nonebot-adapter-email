@@ -19,6 +19,7 @@ python = "^3.10"
 nonebot2 = "^2.0.1"
 aiosmtplib = "^2.0.2"
 aioimaplib = "^1.0.1"
+email-validator = "^2.0.0.post2"
 
 [tool.poetry.group.dev.dependencies]
 nonemoji = "^0.1.2"
@@ -28,6 +29,11 @@ pre-commit = "^3.1.0"
 ruff = "^0.0.275"
 isort = "^5.10.1"
 black = "^23.1.0"
+
+
+[tool.poetry.group.test.dependencies]
+pytest = "^7.4.0"
+pytest-asyncio = "^0.21.1"
 
 [tool.black]
 line-length = 120

@@ -1,6 +1,9 @@
 <p align="center">
-  <a href="https://github.com/AzideCupric/nonebot-adapter-email">
+  <!-- <a href="https://github.com/AzideCupric/nonebot-adapter-email">
     <img src="https://raw.githubusercontent.com/AzideCupric/nonebot-adapter-email/master/docs/logo.svg" alt="logo" width="200px">
+  </a> -->
+    <a href="https://github.com/AzideCupric/nonebot-adapter-email">
+    <img src="./docs/logo.svg" alt="logo" width="200px">
   </a>
 </p>
 
@@ -10,7 +13,8 @@
 
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable-next-line MD036 -->
-_✨ Email 适配 ✨_
+__峯驰信使__
+_✨ Email 适配器 ✨_
 <!-- prettier-ignore-end -->
 
 </div>
@@ -38,3 +42,7 @@ _✨ Email 适配 ✨_
   ·
   <a href="https://github.com/AzideCupric/nonebot-adapter-email/docs/usage.md">开始使用</a>
 </p>
+
+## 登陆？
+
+例如QQ邮箱需要[授权码](https://wx.mail.qq.com/list/readtemplate?name=app_intro.html#/agreement/authorizationCode)
