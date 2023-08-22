@@ -7,7 +7,7 @@ from nonebot.typing import overrides
 from nonebot.drivers import Driver
 
 from nonebot.adapters import Adapter as BaseAdapter
-
+from nonebot.utils import escape_tag
 from nonemail import EmailClient, ConnectReq, ImapResponse, Command
 
 from .log import log
@@ -58,6 +58,9 @@ class Adapter(BaseAdapter):
                     log("TRACE", f"{req.username} pre connecting, protocol is xxx")
                     res = await client.impl.select(req.mailbox)  # 选择需要监听的邮箱
                     log("TRACE", f"{res}")
+
+                    amail = await client.impl.fetch("3085", "BODY[HEADER]")
+                    log("TRACE", f"{escape_tag(repr(amail))}")
                     try:
                         while True:
                             idle = await client.idle_start(timeout=req.timeout)
@@ -72,11 +75,12 @@ class Adapter(BaseAdapter):
                             )  # FIXME: 时间不大于idle_start的timeout就会不进行循环
                             log("TRACE", f"imap client received: {resp}")
 
-                            event = self.email_to_event(resp)
+                            event = self.convert_to_event(resp)
                             log("TRACE", f"convert to event: {event}")
 
                             if event is None:
                                 log("TRACE", "event is None")
+                                # 不直接continue的原因是需要发送 idle_done消息， 否则会一直idle
                             else:
                                 log("TRACE", f"event is not None: {event}")
                                 asyncio.create_task(bot.handle_event(event))
@@ -87,6 +91,8 @@ class Adapter(BaseAdapter):
                             log("TRACE", "imap client wait for next loop...")
                             await asyncio.wait_for(idle, req.timeout + 5)  # 懒得试了， 同样+5
                             log("TRACE", "imap client wait for next loop... done")
+                    except asyncio.TimeoutError:
+                        log("WARNING", "imap client timeout")
 
                     except AioImapException as e:
                         log("ERROR", "IMAP4 Receive Error", exception=e)
@@ -97,9 +103,8 @@ class Adapter(BaseAdapter):
                             await old.close()
                             self.bot_disconnect(bot)
                             bot = None
-            except AioImapException as e:
-                log("ERROR", "IMAP4 Connect Error", exception=e)
-
+            except Exception as e:
+                log("ERROR", "IMAP4 Error", exception=e)
                 await asyncio.sleep(10)
 
     async def shutdown(self) -> None:
@@ -118,5 +123,15 @@ class Adapter(BaseAdapter):
         """获取EmailClient实例, 用于调用其封装好的方法"""
         return self.email_clients[bot.self_id].impl
 
-    def email_to_event(self, resp: Any):
-        return None
+    def convert_to_event(self, resp: Any):
+        if not resp:
+            return None
+
+        if isinstance(resp, list):
+            for r in resp:
+                if r == b"stop_wait_server_push":
+                    return None
+                if r.endswith(b"EXISTS"):
+                    return Event.new_message(
+                        message_id=r.split(b" ")[0].decode("utf-8")
+                    )
