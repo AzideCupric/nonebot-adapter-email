@@ -23,6 +23,7 @@ class Adapter(BaseAdapter):
         super().__init__(driver, **kwargs)
         self.adapter_config = Config(**self.config.dict())
         # setup adapter
+        log("DEBUG", f"Adapter config: {self.adapter_config}")
         self.setup()
 
     @classmethod
@@ -43,35 +44,59 @@ class Adapter(BaseAdapter):
             self.adapter_config.user,
             self.adapter_config.password,
         )
+        log("INFO", f"Connecting to {connect_req.server}:{connect_req.port}...")
         # TODO: 多账号支持(还没想好怎么安排账号和密码在配置里的对应问题)
         self.tasks = [asyncio.create_task(self._start_imap(connect_req))]
 
     async def _start_imap(self, req: ConnectReq) -> None:
         bot: Bot | None = None
-        self.email_client: dict[str, EmailClient] = {}
+        self.email_clients: dict[str, EmailClient] = {}
         while True:
+            log("TRACE", "loop imap")
             try:
                 async with EmailClient(req) as client:
-                    self.email_client[req.username] = client
-                    bot = Bot(self, req.username)
-                    self.bot_connect(bot)
-                    log("INFO", f"Bot {bot.self_id} Connected, protocol: {self.email_client[bot.self_id].procotol}")
-                    while True:
-                        try:
-                            resp: ImapResponse = await client.receive()
-                            if resp is None:
-                                continue
+                    log("TRACE", f"{req.username} pre connecting, protocol is xxx")
+                    res = await client.impl.select(req.mailbox)  # 选择需要监听的邮箱
+                    log("TRACE", f"{res}")
+                    try:
+                        while True:
+                            idle = await client.idle_start(timeout=req.timeout)
+                            if not bot:
+                                self.email_clients[req.username] = client
+                                bot = Bot(self, req.username)
+                                self.bot_connect(bot)
+                                log("INFO", f"Bot {bot.self_id} connected")
 
-                                # TODO: 处理邮件
+                            resp = await client.receive(
+                                timeout=req.timeout + 5
+                            )  # FIXME: 时间不大于idle_start的timeout就会不进行循环
+                            log("TRACE", f"imap client received: {resp}")
 
-                        except AioImapException as e:
-                            log("ERROR", "IMAP4 Receive Error", exception=e)
+                            event = self.email_to_event(resp)
+                            log("TRACE", f"convert to event: {event}")
 
-                        finally:
-                            if bot:
-                                self.email_client.pop(bot.self_id)
-                                self.bot_disconnect(bot)
-                                bot = None
+                            if event is None:
+                                log("TRACE", "event is None")
+                            else:
+                                log("TRACE", f"event is not None: {event}")
+                                asyncio.create_task(bot.handle_event(event))
+
+                            log("TRACE", "will done idle")
+                            client.idle_done()
+
+                            log("TRACE", "imap client wait for next loop...")
+                            await asyncio.wait_for(idle, req.timeout + 5)  # 懒得试了， 同样+5
+                            log("TRACE", "imap client wait for next loop... done")
+
+                    except AioImapException as e:
+                        log("ERROR", "IMAP4 Receive Error", exception=e)
+                        await asyncio.sleep(5)
+                    finally:
+                        if bot:
+                            old = self.email_clients.pop(bot.self_id)
+                            await old.close()
+                            self.bot_disconnect(bot)
+                            bot = None
             except AioImapException as e:
                 log("ERROR", "IMAP4 Connect Error", exception=e)
 
@@ -85,13 +110,13 @@ class Adapter(BaseAdapter):
         await asyncio.gather(*self.tasks, return_exceptions=True)
 
     @overrides(BaseAdapter)
-    async def _call_api(self, bot: Bot, api: str, tag: str, **data: Any) -> ImapResponse:
-        """不建议直接使用此方法手搓Command,
-        请使用`mailbox_operate`方法获取EmailClient实例后调用其封装好的方法
-        """
-        command = Command(name=api, tag=tag, **data)
-        return await self.email_client[bot.self_id].operate(command)
+    async def _call_api(self, bot: Bot, api: str, *data: str) -> ImapResponse:
+        """或者使用`mailbox_operate`方法获取EmailClient实例后调用其封装好的方法"""
+        return await self.email_clients[bot.self_id].impl.uid(api, *data)
 
     async def mailbox_operate(self, bot: Bot):
         """获取EmailClient实例, 用于调用其封装好的方法"""
-        return self.email_client[bot.self_id].impl
+        return self.email_clients[bot.self_id].impl
+
+    def email_to_event(self, resp: Any):
+        return None

@@ -1,4 +1,5 @@
 from collections.abc import Mapping, Iterable
+from typing import Type
 from nonebot.adapters import Message as BaseMessage, MessageSegment as BaseMessageSegment
 
 
@@ -19,4 +20,8 @@ class MessageSegment(BaseMessageSegment):
 class Message(BaseMessage):
     @staticmethod
     def _construct(msg: str | Mapping | Iterable[Mapping]) -> Iterable[MessageSegment]:
+        raise NotImplementedError
+
+    @classmethod
+    def get_segment_class(cls) -> type:
         raise NotImplementedError

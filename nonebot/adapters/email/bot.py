@@ -16,3 +16,7 @@ class Bot(BaseBot):
         **kwargs,
     ) -> Any:
         ...
+
+    async def handle_event(self, event: Event) -> None:
+        """处理事件"""
+        pass
