@@ -410,7 +410,7 @@ websockets = ["websockets (>=10.0)"]
 
 [[package]]
 name = "nonemail"
-version = "0.1.0"
+version = "0.2.0"
 description = "Email收发协议集成"
 optional = false
 python-versions = "^3.8"
@@ -420,14 +420,13 @@ develop = false
 [package.dependencies]
 aioimaplib = "^1.0.1"
 aiosmtplib = "^2.0.2"
-fast-mail-parser = "^0.2.5"
 nonebot2 = "^2.0.1"
 
 [package.source]
 type = "git"
 url = "https://github.com/AzideCupric/nonemail.git"
-reference = "HEAD"
-resolved_reference = "27049e8d90797cd03937d5b517ac6db6422eca56"
+reference = "main"
+resolved_reference = "ae4bc8eb7f751a12df061d2bc1a6bd56515f7485"
 
 [[package]]
 name = "nonemoji"
@@ -907,4 +906,4 @@ multidict = ">=4.0"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "3e340828b9dd0d344dce10f1aa5e91f03b5106707c6aa5122674b53078babe6b"
+content-hash = "4d9a2b8c99a36e90f30b3b434d1d6b94ed548243b87c1c9b045b07aedb66bef9"
