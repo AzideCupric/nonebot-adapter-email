@@ -1,6 +1,6 @@
 import asyncio
 from typing import Any
-from asyncio import get_running_loop
+from asyncio import Future, get_running_loop
 from aioimaplib import IMAP4_SSL, AioImapException
 from email_validator import validate_email, EmailNotValidError
 from nonebot.typing import overrides
@@ -56,19 +56,16 @@ class Adapter(BaseAdapter):
             try:
                 async with EmailClient(req) as client:
                     log("TRACE", f"{req.username} pre connecting, protocol is xxx")
-                    res = await client.impl.select(req.mailbox)  # 选择需要监听的邮箱
-                    log("TRACE", f"{res}")
 
-                    amail = await client.impl.fetch("3085", "BODY[HEADER]")
-                    log("TRACE", f"{escape_tag(repr(amail))}")
-                    try:
-                        while True:
+                    while True:
+                        idle: Future[Any] | None = None
+                        try:
                             idle = await client.idle_start(timeout=req.timeout)
                             if not bot:
                                 self.email_clients[req.username] = client
                                 bot = Bot(self, req.username)
                                 self.bot_connect(bot)
-                                log("INFO", f"Bot {bot.self_id} connected")
+                                log("INFO", f"<blue>Bot {bot.self_id} connected</blue>")
 
                             resp = await client.receive(
                                 timeout=req.timeout + 5
@@ -91,21 +88,33 @@ class Adapter(BaseAdapter):
                             log("TRACE", "imap client wait for next loop...")
                             await asyncio.wait_for(idle, req.timeout + 5)  # 懒得试了， 同样+5
                             log("TRACE", "imap client wait for next loop... done")
-                    except asyncio.TimeoutError:
-                        log("WARNING", "imap client timeout")
 
-                    except AioImapException as e:
-                        log("ERROR", "IMAP4 Receive Error", exception=e)
-                        await asyncio.sleep(5)
-                    finally:
-                        if bot:
-                            old = self.email_clients.pop(bot.self_id)
-                            await old.close()
-                            self.bot_disconnect(bot)
-                            bot = None
+                        except asyncio.TimeoutError:
+                            log("WARNING", "imap client timeout")
+                            if idle and not idle.done():
+                                idle.cancel()
+                                idle = None
+                            client.idle_done()
+                            continue
+                        except AioImapException as e:
+                            log("ERROR", "IMAP4 Receive Error", exception=e)
+                            await asyncio.sleep(5)
+                            self._pop_bot(bot)
+                            break
+
             except Exception as e:
                 log("ERROR", "IMAP4 Error", exception=e)
                 await asyncio.sleep(10)
+            finally:
+                self._pop_bot(bot)
+
+    def _pop_bot(self, bot: Bot | None):
+        if not bot:
+            return
+        self.email_clients.pop(bot.self_id)
+        self.bot_disconnect(bot)
+        log("WARNING", f"<red>Bot {bot.self_id} disconnect!</red>")
+        bot = None
 
     async def shutdown(self) -> None:
         """关闭IMAP4连接"""
@@ -132,6 +141,4 @@ class Adapter(BaseAdapter):
                 if r == b"stop_wait_server_push":
                     return None
                 if r.endswith(b"EXISTS"):
-                    return Event.new_message(
-                        message_id=r.split(b" ")[0].decode("utf-8")
-                    )
+                    return Event()
