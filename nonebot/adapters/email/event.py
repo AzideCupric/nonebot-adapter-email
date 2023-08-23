@@ -1,30 +1,88 @@
-from pydantic import BaseModel
+from typing import NamedTuple
+import re
+from datetime import datetime
 from nonebot.adapters import Event as BaseEvent
 
 from .message import Message
 
+class Emailer(NamedTuple):
+    name: str
+    addr: str
 
 class Event(BaseEvent):
+    """考虑到MIME部分可能会过大，因此仅获取邮件头部"""
+    self_id: str
+    date: str
+    subject: str
+    mail_id: str
+    headers: dict[str, str]
+    mime_types: list[str]
+
+
+    @property
+    def datetime(self) -> datetime:
+        return datetime.strptime(self.date, "%a, %d %b %Y %H:%M:%S %z")
+
+    @property
+    def sender(self) -> Emailer | None:
+        """sender 一般在 From 字段中， 格式为: 'xxx' <xxx@xxx.xxx>"""
+        sender_pattern = re.compile(r'"(.+)" <(.+)>')
+        sender = sender_pattern.match(self.headers["From"])
+        if sender:
+            return Emailer(sender.group(1), sender.group(2))
+
+    @property
+    def recipients(self) -> list[Emailer] | None:
+        """recipients 一般在 To 字段中， 格式为: 'xxx' <xxx@xxx.xxx>, 'xxx' <xxx@xxx.xxx>, ..."""
+        recipients_pattern = re.compile(r'"(.+)" <(.+)>')
+        recipients = recipients_pattern.findall(self.headers["To"])
+        if recipients:
+            return [Emailer(recipient[0], recipient[1]) for recipient in recipients]
+
+    @property
+    def cc(self) -> list[Emailer] | None:
+        """cc 一般在 Cc 字段中， 格式为: 'xxx' <xxx@xxx.xxx>, ..."""
+        cc_pattern = re.compile(r'"(.+)" <(.+)>')
+        cc = cc_pattern.findall(self.headers["Cc"])
+        if cc:
+            return [Emailer(c[0], c[1]) for c in cc]
+
+    @property
+    def message_id(self) -> str | None:
+        return self.headers["Message-ID"]
+
     def get_type(self) -> str:
-        raise NotImplementedError
+        return "new_mail"
 
     def get_event_name(self) -> str:
-        raise NotImplementedError
+        return "email_event"
 
     def get_event_description(self) -> str:
         return str(self.dict())
 
     def get_message(self) -> Message:
-        raise NotImplementedError
+        raise ValueError("This event does not have a message.")
 
     def get_plaintext(self) -> str:
-        raise NotImplementedError
+        raise ValueError("This event does not have a message.")
 
     def get_user_id(self) -> str:
-        raise NotImplementedError
+        if not self.sender:
+            return ""
+        return self.sender.addr
 
     def get_session_id(self) -> str:
-        raise NotImplementedError
+        if not self.sender:
+            return ""
+        return self.sender.addr
 
     def is_tome(self) -> bool:
-        return False
+        return True
+
+    def is_ccme(self) -> bool:
+        """当邮件抄送给机器人时返回 True"""
+        if self.cc is None:
+            return False
+        return any(cc.addr == self.self_id for cc in self.cc)
+
+    # Bcc 无法从接收到的邮件中判断

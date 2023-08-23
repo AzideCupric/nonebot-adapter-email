@@ -1,20 +1,19 @@
 import asyncio
 from typing import Any
-from asyncio import Future, get_running_loop
-from aioimaplib import IMAP4_SSL, AioImapException
-from email_validator import validate_email, EmailNotValidError
+from asyncio import Future
+from aioimaplib import AioImapException, Command
 from nonebot.typing import overrides
 from nonebot.drivers import Driver
 
 from nonebot.adapters import Adapter as BaseAdapter
-from nonebot.utils import escape_tag
-from nonemail import EmailClient, ConnectReq, ImapResponse, Command
+from nonemail import EmailClient, ConnectReq, ImapResponse
+
+from .utils import email_parser
 
 from .log import log
 from .bot import Bot
 from .event import Event
 from .config import Config, ADAPTER_NAME
-from .message import Message, MessageSegment
 
 
 class Adapter(BaseAdapter):
@@ -72,7 +71,7 @@ class Adapter(BaseAdapter):
                             )  # FIXME: 时间不大于idle_start的timeout就会不进行循环
                             log("TRACE", f"imap client received: {resp}")
 
-                            event = self.convert_to_event(resp)
+                            event = await self.convert_to_event(bot, resp)
                             log("TRACE", f"convert to event: {event}")
 
                             if event is None:
@@ -124,21 +123,41 @@ class Adapter(BaseAdapter):
         await asyncio.gather(*self.tasks, return_exceptions=True)
 
     @overrides(BaseAdapter)
-    async def _call_api(self, bot: Bot, api: str, *data: str) -> ImapResponse:
+    async def _call_api(self, bot: Bot, api: str, *data: str) -> ImapResponse | None:
         """或者使用`mailbox_operate`方法获取EmailClient实例后调用其封装好的方法"""
-        return await self.email_clients[bot.self_id].impl.uid(api, *data)
+        if impl_procotol := self.email_clients[bot.self_id].impl.protocol:
+            return await impl_procotol.execute(Command(api, *data))
 
-    async def mailbox_operate(self, bot: Bot):
+    def mailbox_operate(self, bot: Bot):
         """获取EmailClient实例, 用于调用其封装好的方法"""
         return self.email_clients[bot.self_id].impl
 
-    def convert_to_event(self, resp: Any):
+    async def convert_to_event(self, bot: Bot, resp: Any):
         if not resp:
             return None
 
-        if isinstance(resp, list):
-            for r in resp:
-                if r == b"stop_wait_server_push":
-                    return None
-                if r.endswith(b"EXISTS"):
-                    return Event()
+        def bytes_to_str(b: bytes | str):
+            if isinstance(b, str):
+                return b
+            return b.decode("utf-8")
+
+        resp_strs = [bytes_to_str(r) for r in resp]
+
+        if resp_strs[0].lower() == "stop_wait_server_push":
+            log("DEBUG", " resp is stop_wait_server_push, ignore")
+            return None
+        elif resp_strs[0].lower().endswith("exists"):
+            msg_id, _ = resp_strs[0].split(" ")
+            raw_mail_header = await self.mailbox_operate(bot).fetch(msg_id, "BODY[HEADER]")
+            parsed_mail = email_parser(raw_mail_header)
+            return Event(
+                self_id=bot.self_id,
+                date=parsed_mail.date,
+                subject=parsed_mail.subject,
+                mail_id=msg_id,
+                headers=parsed_mail.headers,
+                mime_types=[part.mimetype for part in parsed_mail.attachments],
+            )
+        else:
+            log("WARNING", f"unknown resp: {resp_strs}")
+            return None

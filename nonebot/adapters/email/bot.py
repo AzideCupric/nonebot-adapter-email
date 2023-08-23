@@ -2,7 +2,7 @@ from typing import Any
 from nonebot.typing import overrides
 
 from nonebot.adapters import Bot as BaseBot
-
+from nonebot.message import handle_event
 from .event import Event
 from .message import Message, MessageSegment
 
@@ -19,4 +19,4 @@ class Bot(BaseBot):
 
     async def handle_event(self, event: Event) -> None:
         """处理事件"""
-        pass
+        await handle_event(self, event)
