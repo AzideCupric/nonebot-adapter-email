@@ -58,14 +58,14 @@ class Adapter(BaseAdapter):
 
                     while True:
                         idle: Future[Any] | None = None
+                        if not bot:
+                            self.email_clients[req.username] = client
+                            bot = Bot(self, req.username)
+                            self.bot_connect(bot)
+                            log("INFO", f"<blue>Bot {bot.self_id} connected</blue>")
                         try:
                             idle = await client.idle_start(timeout=req.timeout)
-                            if not bot:
-                                self.email_clients[req.username] = client
-                                bot = Bot(self, req.username)
-                                self.bot_connect(bot)
-                                log("INFO", f"<blue>Bot {bot.self_id} connected</blue>")
-
+                            log("TRACE", "imap client idle start")
                             resp = await client.receive(
                                 timeout=req.timeout + 5
                             )  # FIXME: 时间不大于idle_start的timeout就会不进行循环
@@ -76,13 +76,11 @@ class Adapter(BaseAdapter):
 
                             if event is None:
                                 log("TRACE", "event is None")
-                                # 不直接continue的原因是需要发送 idle_done消息， 否则会一直idle
+                                log("TRACE", "will done idle")
+                                client.idle_done()
                             else:
-                                log("TRACE", f"event is not None: {event}")
+                                log("TRACE", f"event: {event.json(indent=4, ensure_ascii=False)}")
                                 asyncio.create_task(bot.handle_event(event))
-
-                            log("TRACE", "will done idle")
-                            client.idle_done()
 
                             log("TRACE", "imap client wait for next loop...")
                             await asyncio.wait_for(idle, req.timeout + 5)  # 懒得试了， 同样+5
@@ -142,22 +140,37 @@ class Adapter(BaseAdapter):
             return b.decode("utf-8")
 
         resp_strs = [bytes_to_str(r) for r in resp]
+        log("DEBUG", f"resp_strs: {resp_strs}")
 
         if resp_strs[0].lower() == "stop_wait_server_push":
-            log("DEBUG", " resp is stop_wait_server_push, ignore")
+            log("DEBUG", "resp is stop_wait_server_push, ignore")
             return None
         elif resp_strs[0].lower().endswith("exists"):
             msg_id, _ = resp_strs[0].split(" ")
-            raw_mail_header = await self.mailbox_operate(bot).fetch(msg_id, "BODY[HEADER]")
-            parsed_mail = email_parser(raw_mail_header)
-            return Event(
-                self_id=bot.self_id,
-                date=parsed_mail.date,
-                subject=parsed_mail.subject,
-                mail_id=msg_id,
-                headers=parsed_mail.headers,
-                mime_types=[part.mimetype for part in parsed_mail.attachments],
-            )
+            log("DEBUG", f"new mail: {msg_id}")
+            try:
+                client_impl = self.mailbox_operate(bot)
+                # FIXME:对邮箱进行操作前需要idle_done, 这潜在的会导致外面那个循环重复idle_done
+                # 不结束idle会一直卡在fetch
+                client_impl.idle_done()
+
+                raw_mail_header = await client_impl.fetch(msg_id, "BODY[HEADER]")
+                log("DEBUG", f"Fetch result: {raw_mail_header.result}")
+                parsed_mail = email_parser(raw_mail_header)
+                event = Event(
+                    self_id=bot.self_id,
+                    date=parsed_mail.date,
+                    subject=parsed_mail.subject,
+                    mail_id=msg_id,
+                    headers=parsed_mail.headers,
+                    mime_types=[part.mimetype for part in parsed_mail.attachments],
+                )
+                log("SUCCESS", "<green><b>new mail</b></green>\n" + str(event))
+            except Exception as e:
+                log("ERROR", "Parse Mail Error", exception=e)
+                return None
+            else:
+                return event
         else:
             log("WARNING", f"unknown resp: {resp_strs}")
             return None
