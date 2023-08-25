@@ -1,6 +1,6 @@
 # ----- Project -----
 
-/tests/test_flow.py
+/tests/flow.py
 *.sqlite
 
 # Created by https://www.toptal.com/developers/gitignore/api/python,node,visualstudiocode,jetbrains,macos,windows,linux

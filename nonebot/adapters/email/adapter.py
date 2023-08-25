@@ -6,6 +6,7 @@ from nonebot.typing import overrides
 from nonebot.drivers import Driver
 
 from nonebot.adapters import Adapter as BaseAdapter
+from nonebot.utils import escape_tag
 from nonemail import EmailClient, ConnectReq, ImapResponse
 
 from .utils import email_parser
@@ -62,7 +63,7 @@ class Adapter(BaseAdapter):
                             self.email_clients[req.username] = client
                             bot = Bot(self, req.username)
                             self.bot_connect(bot)
-                            log("INFO", f"<blue>Bot {bot.self_id} connected</blue>")
+                            log("SUCCESS", f"<blue>Bot {bot.self_id} connected</blue>")
                         try:
                             idle = await client.idle_start(timeout=req.timeout)
                             log("TRACE", "imap client idle start")
@@ -72,14 +73,13 @@ class Adapter(BaseAdapter):
                             log("TRACE", f"imap client received: {resp}")
 
                             event = await self.convert_to_event(bot, resp)
-                            log("TRACE", f"convert to event: {event}")
 
                             if event is None:
                                 log("TRACE", "event is None")
                                 log("TRACE", "will done idle")
                                 client.idle_done()
                             else:
-                                log("TRACE", f"event: {event.json(indent=4, ensure_ascii=False)}")
+                                log("DEBUG", f"event: {escape_tag(event.json(indent=4, ensure_ascii=False))}")
                                 asyncio.create_task(bot.handle_event(event))
 
                             log("TRACE", "imap client wait for next loop...")
@@ -88,30 +88,30 @@ class Adapter(BaseAdapter):
 
                         except asyncio.TimeoutError:
                             log("WARNING", "imap client timeout")
-                            if idle and not idle.done():
-                                idle.cancel()
-                                idle = None
                             client.idle_done()
                             continue
                         except AioImapException as e:
                             log("ERROR", "IMAP4 Receive Error", exception=e)
                             await asyncio.sleep(5)
-                            self._pop_bot(bot)
+                            self._pop(bot)
+                            bot = None
+                            log("DEBUG", f"bot now is {bot}")
                             break
 
             except Exception as e:
                 log("ERROR", "IMAP4 Error", exception=e)
                 await asyncio.sleep(10)
             finally:
-                self._pop_bot(bot)
+                self._pop(bot)
+                bot = None
+                log("DEBUG", f"Now bot is {bot}")
 
-    def _pop_bot(self, bot: Bot | None):
+    def _pop(self, bot: Bot | None):
         if not bot:
             return
         self.email_clients.pop(bot.self_id)
         self.bot_disconnect(bot)
         log("WARNING", f"<red>Bot {bot.self_id} disconnect!</red>")
-        bot = None
 
     async def shutdown(self) -> None:
         """关闭IMAP4连接"""
@@ -156,6 +156,7 @@ class Adapter(BaseAdapter):
 
                 raw_mail_header = await client_impl.fetch(msg_id, "BODY[HEADER]")
                 log("DEBUG", f"Fetch result: {raw_mail_header.result}")
+                log("TRACE", f"{escape_tag(str(raw_mail_header.lines))}")
                 parsed_mail = email_parser(raw_mail_header)
                 event = Event(
                     self_id=bot.self_id,
@@ -165,7 +166,7 @@ class Adapter(BaseAdapter):
                     headers=parsed_mail.headers,
                     mime_types=[part.mimetype for part in parsed_mail.attachments],
                 )
-                log("SUCCESS", "<green><b>new mail</b></green>\n" + str(event))
+                log("DEBUG", "<green><b>new mail</b></green>\n" + escape_tag(str(event)))
             except Exception as e:
                 log("ERROR", "Parse Mail Error", exception=e)
                 return None

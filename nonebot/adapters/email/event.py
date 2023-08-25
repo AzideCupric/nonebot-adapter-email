@@ -1,6 +1,7 @@
 from typing import NamedTuple
 import re
 from datetime import datetime
+from nonebot.utils import escape_tag
 from nonebot.adapters import Event as BaseEvent
 
 from .message import Message
@@ -29,7 +30,7 @@ class Event(BaseEvent):
     @property
     def sender(self) -> Emailer:
         """sender 一般在 From 字段中， 格式为: 'xxx' <xxx@xxx.xxx>"""
-        sender_pattern = re.compile(r'"(.+)" <(.+)>')
+        sender_pattern = re.compile(r"(.+) <(.+)>")
         sender = sender_pattern.match(self.headers.get("From", ""))
         if sender:
             return Emailer(sender.group(1), sender.group(2))
@@ -39,7 +40,7 @@ class Event(BaseEvent):
     @property
     def recipients(self) -> list[Emailer]:
         """recipients 一般在 To 字段中， 格式为: 'xxx' <xxx@xxx.xxx>, 'xxx' <xxx@xxx.xxx>, ..."""
-        recipients_pattern = re.compile(r'"(.+)" <(.+)>')
+        recipients_pattern = re.compile(r"(.+) <(.+)>")
         recipients = recipients_pattern.findall(self.headers.get("To", ""))
         if recipients:
             return [Emailer(recipient[0], recipient[1]) for recipient in recipients]
@@ -48,7 +49,7 @@ class Event(BaseEvent):
     @property
     def cc(self) -> list[Emailer]:
         """cc 一般在 Cc 字段中， 格式为: 'xxx' <xxx@xxx.xxx>, ..."""
-        cc_pattern = re.compile(r'"(.+)" <(.+)>')
+        cc_pattern = re.compile(r"(.+) <(.+)>")
         cc = cc_pattern.findall(self.headers.get("Cc", ""))
         if cc:
             return [Emailer(c[0], c[1]) for c in cc]
@@ -62,10 +63,10 @@ class Event(BaseEvent):
         return "new_mail"
 
     def get_event_name(self) -> str:
-        return "email_event"
+        return "New Mail"
 
     def get_event_description(self) -> str:
-        return str(self.dict())
+        return escape_tag(f"\n{str(self)}")
 
     def get_message(self) -> Message:
         raise ValueError("This event does not have a message.")
@@ -84,7 +85,7 @@ class Event(BaseEvent):
         return self.sender.addr
 
     def is_tome(self) -> bool:
-        return True
+        return self.self_id in self.recipients
 
     def is_ccme(self) -> bool:
         """当邮件抄送给机器人时返回 True"""
@@ -97,7 +98,11 @@ class Event(BaseEvent):
             f"Subject: {self.subject}\n"
             + f"From: {self.sender.name} <{self.sender.addr}>\n"
             + "To:" + ", ".join([str(r) for r in self.recipients]) + "\n"
-            + "Cc:" + ", ".join([str(c) for c in self.cc]) + "\n" if self.cc else ""
+            + (
+                ("Cc:" + ", ".join([str(c) for c in self.cc]) + "\n")
+                if self.cc
+                else ""
+            )
             + f"Date: {self.date}\n"
         )
 
