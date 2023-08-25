@@ -28,9 +28,12 @@
 
 # TODO: 毙了，先用 python 自带的email库
 
+from email.contentmanager import ContentManager
 from email.message import EmailMessage
+from typing import Any
 from email_validator import validate_email, EmailNotValidError
 from .log import log
+
 
 class Message:
     def __init__(self):
@@ -46,7 +49,7 @@ class Message:
     def subject(self, subject: str) -> None:
         self._email["Subject"] = subject
 
-    def to(self, to: str|list[str]) -> None:
+    def to(self, to: str | list[str]) -> None:
         if isinstance(to, str):
             to = [to]
         valid_tos = []
@@ -60,7 +63,7 @@ class Message:
                 valid_tos.append(t)
         self._email["To"] = ", ".join(valid_tos)
 
-    def cc(self, cc: str|list[str]) -> None:
+    def cc(self, cc: str | list[str]) -> None:
         if isinstance(cc, str):
             cc = [cc]
         valid_ccs = []
@@ -74,7 +77,7 @@ class Message:
                 valid_ccs.append(c)
         self._email["Cc"] = ", ".join(valid_ccs)
 
-    def bcc(self, bcc: str|list[str]) -> None:
+    def bcc(self, bcc: str | list[str]) -> None:
         if isinstance(bcc, str):
             bcc = [bcc]
         valid_bccs = []
@@ -90,3 +93,6 @@ class Message:
 
     def from_(self, from_: str) -> None:
         self._email["From"] = from_
+
+    def set_content(self, *args: Any, content_manager: ContentManager | None = None, **kw: Any):
+        self._email.set_content(args, content_manager, kw)
