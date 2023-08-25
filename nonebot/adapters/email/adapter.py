@@ -7,13 +7,14 @@ from nonebot.drivers import Driver
 
 from nonebot.adapters import Adapter as BaseAdapter
 from nonebot.utils import escape_tag
-from nonemail import EmailClient, ConnectReq, ImapResponse
+from nonemail import EmailClient, ConnectReq, ImapResponse, SendReq
 
 from .utils import email_parser
 
 from .log import log
 from .bot import Bot
 from .event import Event
+from .message import Message
 from .config import Config, ADAPTER_NAME
 
 
@@ -129,6 +130,25 @@ class Adapter(BaseAdapter):
     def mailbox_operate(self, bot: Bot):
         """获取EmailClient实例, 用于调用其封装好的方法"""
         return self.email_clients[bot.self_id].impl
+
+    async def send_to(self, bot_id: str, message: Message, **kwargs: Any) -> None:
+        email_client = self.email_clients.get(bot_id, None)
+        if email_client is None:
+            log("ERROR", f"<red>Bot {bot_id}'s email client not found</red>")
+            return
+        return await self._send(email_client, message, **kwargs)
+
+
+    async def _send(self, email_client: EmailClient, message: Message, **kwargs: Any):
+        send_req = SendReq(
+            server=self.adapter_config.smtp_host,
+            port=self.adapter_config.smtp_port,
+            message=message.email,
+            password=self.adapter_config.password,
+            use_tls=kwargs.get("use_tls", True),
+            **kwargs,
+        )
+        return await email_client.send(send_req)
 
     async def convert_to_event(self, bot: Bot, resp: Any):
         if not resp:
