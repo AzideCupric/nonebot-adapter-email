@@ -95,4 +95,8 @@ class Message:
         self._email["From"] = from_
 
     def set_content(self, *args: Any, content_manager: ContentManager | None = None, **kw: Any):
-        self._email.set_content(args, content_manager, kw)
+        self._email.set_content(
+            *args,
+            content_manager=content_manager,
+            **kw
+        )

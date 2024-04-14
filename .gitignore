@@ -1,8 +1,8 @@
 # ----- Project -----
-
+/tests/test_able.py
 /tests/flow.py
 *.sqlite
-
+nb.env
 # Created by https://www.toptal.com/developers/gitignore/api/python,node,visualstudiocode,jetbrains,macos,windows,linux
 # Edit at https://www.toptal.com/developers/gitignore?templates=python,node,visualstudiocode,jetbrains,macos,windows,linux
 

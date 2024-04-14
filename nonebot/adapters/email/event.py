@@ -1,6 +1,7 @@
 from typing import NamedTuple
 import re
 from datetime import datetime
+from typing_extensions import override
 from nonebot.utils import escape_tag
 from nonebot.adapters import Event as BaseEvent
 
@@ -59,8 +60,9 @@ class Event(BaseEvent):
     def message_id(self) -> str:
         return self.headers.get("Message-ID", "")
 
+    @override
     def get_type(self) -> str:
-        return "new_mail"
+        return "message"
 
     def get_event_name(self) -> str:
         return "New Mail"
@@ -69,7 +71,7 @@ class Event(BaseEvent):
         return escape_tag(f"\n{str(self)}")
 
     def get_message(self) -> Message:
-        raise ValueError("This event does not have a message.")
+        return Message()
 
     def get_plaintext(self) -> str:
         raise ValueError("This event does not have a message.")

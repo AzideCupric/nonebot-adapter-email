@@ -1,6 +1,5 @@
 import asyncio
 from typing import Any
-from asyncio import Future
 from aioimaplib import AioImapException, Command
 from nonebot.typing import overrides
 from nonebot.drivers import Driver
@@ -56,17 +55,16 @@ class Adapter(BaseAdapter):
             log("TRACE", "loop imap")
             try:
                 async with EmailClient(req) as client:
-                    log("TRACE", f"{req.username} pre connecting, protocol is xxx")
+                    log("TRACE", f"{req.username} pre connecting...")
 
                     while True:
-                        idle: Future[Any] | None = None
                         if not bot:
                             self.email_clients[req.username] = client
                             bot = Bot(self, req.username)
                             self.bot_connect(bot)
                             log("SUCCESS", f"<blue>Bot {bot.self_id} connected</blue>")
                         try:
-                            idle = await client.idle_start(timeout=req.timeout)
+                            await client.idle_start(timeout=req.timeout)
                             log("TRACE", "imap client idle start")
                             resp = await client.receive(
                                 timeout=req.timeout + 5
@@ -84,9 +82,6 @@ class Adapter(BaseAdapter):
                                 asyncio.create_task(bot.handle_event(event))
 
                             log("TRACE", "imap client wait for next loop...")
-                            await asyncio.wait_for(idle, req.timeout + 5)  # 懒得试了， 同样+5
-                            log("TRACE", "imap client wait for next loop... done")
-
                         except asyncio.TimeoutError:
                             log("WARNING", "imap client timeout")
                             client.idle_done()
@@ -138,14 +133,18 @@ class Adapter(BaseAdapter):
             return
         return await self._send(email_client, message, **kwargs)
 
-
     async def _send(self, email_client: EmailClient, message: Message, **kwargs: Any):
+        log(
+            "TRACE",
+            f"send:\n{message.email}\n\nserver: {self.adapter_config.smtp_host}:{self.adapter_config.smtp_port}",
+        )
+        # FIXME: 没有显式指定用户名
         send_req = SendReq(
             server=self.adapter_config.smtp_host,
             port=self.adapter_config.smtp_port,
             message=message.email,
             password=self.adapter_config.password,
-            use_tls=kwargs.get("use_tls", True),
+            use_tls=self.adapter_config.smtp_use_tls,
             **kwargs,
         )
         return await email_client.send(send_req)
@@ -154,44 +153,39 @@ class Adapter(BaseAdapter):
         if not resp:
             return None
 
-        def bytes_to_str(b: bytes | str):
-            if isinstance(b, str):
-                return b
-            return b.decode("utf-8")
-
-        resp_strs = [bytes_to_str(r) for r in resp]
-        log("DEBUG", f"resp_strs: {resp_strs}")
-
-        if resp_strs[0].lower() == "stop_wait_server_push":
-            log("DEBUG", "resp is stop_wait_server_push, ignore")
-            return None
-        elif resp_strs[0].lower().endswith("exists"):
-            msg_id, _ = resp_strs[0].split(" ")
-            log("DEBUG", f"new mail: {msg_id}")
-            try:
-                client_impl = self.mailbox_operate(bot)
-                # FIXME:对邮箱进行操作前需要idle_done, 这潜在的会导致外面那个循环重复idle_done
-                # 不结束idle会一直卡在fetch
-                client_impl.idle_done()
-
-                raw_mail_header = await client_impl.fetch(msg_id, "BODY[HEADER]")
-                log("DEBUG", f"Fetch result: {raw_mail_header.result}")
-                log("TRACE", f"{escape_tag(str(raw_mail_header.lines))}")
-                parsed_mail = email_parser(raw_mail_header)
-                event = Event(
-                    self_id=bot.self_id,
-                    date=parsed_mail.date,
-                    subject=parsed_mail.subject,
-                    mail_id=msg_id,
-                    headers=parsed_mail.headers,
-                    mime_types=[part.mimetype for part in parsed_mail.attachments],
-                )
-                log("DEBUG", "<green><b>new mail</b></green>\n" + escape_tag(str(event)))
-            except Exception as e:
-                log("ERROR", "Parse Mail Error", exception=e)
+        log("TRACE", f"convert_to_event: {resp}")
+        assert isinstance(resp, list)
+        match resp[0].lower():
+            case b"stop_wait_server_push":
+                log("DEBUG", "resp is stop_wait_server_push, ignore")
                 return None
-            else:
-                return event
-        else:
-            log("WARNING", f"unknown resp: {resp_strs}")
-            return None
+            case exists if exists.endswith(b"exists"):
+                msg_id, _ = exists.decode("utf-8").split()
+                log("DEBUG", f"new mail: {msg_id}")
+                try:
+                    client_impl = self.mailbox_operate(bot)
+                    # FIXME:对邮箱进行操作前需要idle_done, 这潜在的会导致外面那个循环重复idle_done
+                    # 不结束idle会一直卡在fetch
+                    client_impl.idle_done()
+
+                    raw_mail_header = await client_impl.fetch(msg_id, "BODY[HEADER]")
+                    log("DEBUG", f"Fetch result: {raw_mail_header.result}")
+                    log("TRACE", f"{escape_tag(str(raw_mail_header.lines))}")
+                    parsed_mail = email_parser(raw_mail_header)
+                    event = Event(
+                        self_id=bot.self_id,
+                        date=parsed_mail.date,
+                        subject=parsed_mail.subject,
+                        mail_id=msg_id,
+                        headers=parsed_mail.headers,
+                        mime_types=[part.mimetype for part in parsed_mail.attachments],
+                    )
+                    log("DEBUG", "<green><b>new mail</b></green>\n" + escape_tag(str(event)))
+                except Exception as e:
+                    log("ERROR", "Parse Mail Error", exception=e)
+                    return None
+                else:
+                    return event
+            case unknown:
+                log("WARNING", f"unknown resp: {unknown}")
+                return None
